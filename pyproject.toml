@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stock-trading"
+version = "0.1.0"
+description = "Personal stock trading scanner and strategy"
+requires-python = ">=3.11"
+dependencies = [
+    "yfinance>=0.2.36",
+    "pandas>=2.1.0",
+    "pandas-ta>=0.3.14b1",
+    "click>=8.1.0",
+    "tqdm>=4.66.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.scripts]
+stock-trading = "stock_trading.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
