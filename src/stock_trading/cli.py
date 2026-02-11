@@ -158,3 +158,50 @@ def query_cmd(ticker, start, end):
         )
     click.echo(separator)
     click.echo(f"{len(rows)} row(s)")
+
+
+@cli.command("chart")
+@click.option("--ticker", required=True, help="Ticker symbol to chart.")
+@click.option("--start", default=None, help="Start date (YYYY-MM-DD).")
+@click.option("--end", default=None, help="End date (YYYY-MM-DD).")
+@click.option("--sma", default=None, help="SMA periods, comma-separated (e.g. 20,50,200).")
+@click.option("--ema", default=None, help="EMA periods, comma-separated (e.g. 12,26).")
+@click.option("--rsi", default=None, type=int, help="RSI period (e.g. 14).")
+@click.option("--macd", default=None,
+              help="MACD fast,slow,signal (e.g. 12,26,9).")
+@click.option("--bbands", default=None, type=int, help="Bollinger Bands period (e.g. 20).")
+@click.option("--no-volume", is_flag=True, default=False, help="Hide volume subplot.")
+@click.option("--output", "-o", default=None, help="Save chart to file instead of displaying.")
+def chart_cmd(ticker, start, end, sma, ema, rsi, macd, bbands, no_volume, output):
+    """Render a candlestick chart with optional technical indicators."""
+    from stock_trading import charting
+
+    conn = db.get_connection()
+    db.init_db(conn)
+
+    indicators = {}
+    if sma:
+        indicators["sma"] = [int(p.strip()) for p in sma.split(",")]
+    if ema:
+        indicators["ema"] = [int(p.strip()) for p in ema.split(",")]
+    if rsi is not None:
+        indicators["rsi"] = rsi
+    if macd is not None:
+        parts = [int(p.strip()) for p in macd.split(",")]
+        if len(parts) != 3:
+            click.echo("Error: --macd requires 3 comma-separated values (fast,slow,signal).")
+            conn.close()
+            return
+        indicators["macd"] = tuple(parts)
+    if bbands is not None:
+        indicators["bbands"] = bbands
+    indicators["volume"] = not no_volume
+
+    success = charting.chart_ticker(conn, ticker, start=start, end=end,
+                                     indicators=indicators, output=output)
+    conn.close()
+
+    if not success:
+        click.echo(f"No price data found for {ticker}.")
+    elif output:
+        click.echo(f"Chart saved to {output}")
