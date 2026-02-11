@@ -19,6 +19,8 @@ _INDICATOR_COLORS = {
     "macd_signal": "#FF6D00",
     "macd_hist_pos": "#26A69A",
     "macd_hist_neg": "#EF5350",
+    "swing_high": "#26A69A",
+    "swing_low": "#EF5350",
 }
 
 
@@ -138,6 +140,30 @@ def compute_indicators(df, indicators):
         addplots.append(mpf.make_addplot(df["MACD_Hist"], panel=next_panel,
                                           type="bar", color=hist_colors))
         next_panel += 1
+
+    # Momentum (swing high/low markers)
+    momentum_window = indicators.get("momentum")
+    if momentum_window:
+        from stock_trading.screener import _detect_swings
+
+        swing_highs, swing_lows = _detect_swings(df["High"], df["Low"],
+                                                   window=momentum_window)
+
+        # Create scatter series for swing highs (markers above highs)
+        sh_series = pd.Series(float("nan"), index=df.index)
+        for pos, val in swing_highs:
+            sh_series.iloc[pos] = df["High"].iloc[pos]
+        addplots.append(mpf.make_addplot(sh_series, panel=0, type="scatter",
+                                          markersize=50, marker="v",
+                                          color=_INDICATOR_COLORS["swing_high"]))
+
+        # Create scatter series for swing lows (markers below lows)
+        sl_series = pd.Series(float("nan"), index=df.index)
+        for pos, val in swing_lows:
+            sl_series.iloc[pos] = df["Low"].iloc[pos]
+        addplots.append(mpf.make_addplot(sl_series, panel=0, type="scatter",
+                                          markersize=50, marker="^",
+                                          color=_INDICATOR_COLORS["swing_low"]))
 
     extra_kwargs["volume"] = indicators.get("volume", True)
     return addplots, extra_kwargs

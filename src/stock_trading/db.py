@@ -126,3 +126,28 @@ def query_prices(conn, ticker, start_date=None, end_date=None):
         params.append(end_date)
     sql += " ORDER BY date"
     return conn.execute(sql, params).fetchall()
+
+
+def query_all_fundamentals(conn):
+    """Return all tickers with their fundamental data."""
+    return conn.execute(
+        "SELECT ticker, name, sector, industry, market_cap, "
+        "trailing_pe, forward_pe, dividend_yield, beta "
+        "FROM tickers"
+    ).fetchall()
+
+
+def query_recent_prices(conn, lookback_days=250):
+    """Return recent price data for all tickers in one query.
+
+    Uses the idx_daily_prices_date index for efficient date filtering.
+    Results are ordered by (ticker, date) for groupby partitioning.
+    """
+    from datetime import timedelta
+
+    cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    return conn.execute(
+        "SELECT ticker, date, open, high, low, close, volume, adj_close "
+        "FROM daily_prices WHERE date >= ? ORDER BY ticker, date",
+        (cutoff,),
+    ).fetchall()

@@ -88,7 +88,7 @@ def retry_failed_cmd():
 
 
 @cli.command("update")
-@click.option("--fundamentals", is_flag=True, default=False, help="Also fetch fundamentals data.")
+@click.option("--fundamentals/--no-fundamentals", default=True, help="Fetch fundamentals data (default: on).")
 def update_cmd(fundamentals):
     """Run a daily incremental update."""
     import logging
@@ -170,9 +170,10 @@ def query_cmd(ticker, start, end):
 @click.option("--macd", default=None,
               help="MACD fast,slow,signal (e.g. 12,26,9).")
 @click.option("--bbands", default=None, type=int, help="Bollinger Bands period (e.g. 20).")
+@click.option("--momentum", default=None, type=int, help="Momentum swing window (e.g. 5).")
 @click.option("--no-volume", is_flag=True, default=False, help="Hide volume subplot.")
 @click.option("--output", "-o", default=None, help="Save chart to file instead of displaying.")
-def chart_cmd(ticker, start, end, sma, ema, rsi, macd, bbands, no_volume, output):
+def chart_cmd(ticker, start, end, sma, ema, rsi, macd, bbands, momentum, no_volume, output):
     """Render a candlestick chart with optional technical indicators."""
     from stock_trading import charting
 
@@ -195,6 +196,8 @@ def chart_cmd(ticker, start, end, sma, ema, rsi, macd, bbands, no_volume, output
         indicators["macd"] = tuple(parts)
     if bbands is not None:
         indicators["bbands"] = bbands
+    if momentum is not None:
+        indicators["momentum"] = momentum
     indicators["volume"] = not no_volume
 
     success = charting.chart_ticker(conn, ticker, start=start, end=end,
@@ -205,3 +208,98 @@ def chart_cmd(ticker, start, end, sma, ema, rsi, macd, bbands, no_volume, output
         click.echo(f"No price data found for {ticker}.")
     elif output:
         click.echo(f"Chart saved to {output}")
+
+
+@cli.command("recommend")
+@click.option("--top", default=20, type=int, show_default=True,
+              help="Number of top recommendations to display.")
+@click.option("--sector", default=None, help="Filter results by sector.")
+@click.option("--min-market-cap", default=None, type=float,
+              help="Minimum market cap filter (e.g. 1e9 for $1B).")
+@click.option("--technical-weight", default=0.6, type=float, show_default=True,
+              help="Weight for technical score.")
+@click.option("--fundamental-weight", default=0.4, type=float, show_default=True,
+              help="Weight for fundamental score.")
+@click.option("--lookback", default=250, type=int, show_default=True,
+              help="Calendar days of price history to use.")
+def recommend_cmd(top, sector, min_market_cap, technical_weight, fundamental_weight, lookback):
+    """Score and rank stocks, showing top recommendations."""
+    import logging
+
+    import pandas as pd
+
+    from stock_trading import screener
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    conn = db.get_connection()
+    db.init_db(conn)
+
+    weights = {
+        "technical": technical_weight,
+        "fundamental": fundamental_weight,
+    }
+
+    results = screener.score_universe(conn, lookback_days=lookback, weights=weights)
+    conn.close()
+
+    if results.empty:
+        click.echo("No results. Ensure you have price and fundamental data.")
+        return
+
+    # Apply filters
+    if sector:
+        results = results[results["sector"].str.lower() == sector.lower()]
+    if min_market_cap is not None:
+        results = results[results["market_cap"] >= min_market_cap]
+
+    if results.empty:
+        click.echo("No results match the specified filters.")
+        return
+
+    display = results.head(top)
+
+    click.echo(f"\nTop {len(display)} Stock Recommendations")
+    click.echo(f"Weights: Technical={technical_weight:.0%}, Fundamental={fundamental_weight:.0%}")
+    click.echo("")
+
+    header = (
+        f"{'Rank':>4}  {'Ticker':<6}  {'Name':<20}  {'Sector':<18}  "
+        f"{'Composite':>9}  {'Technical':>9}  {'Fundmntl':>9}  "
+        f"{'Price':>8}  {'RSI':>5}  {'P/E':>6}  {'MktCap':>10}"
+    )
+    separator = "-" * len(header)
+
+    click.echo(header)
+    click.echo(separator)
+
+    for rank, (_, row) in enumerate(display.iterrows(), start=1):
+        raw_name = row.get("name")
+        name = (str(raw_name) if pd.notna(raw_name) else "")[:20]
+        raw_sector = row.get("sector")
+        sector_val = (str(raw_sector) if pd.notna(raw_sector) else "")[:18]
+        price = row.get("price", 0)
+        rsi = row.get("rsi_value", 0)
+        pe = row.get("pe", 0)
+        mcap = row.get("market_cap", 0)
+
+        if pd.notna(mcap) and mcap > 0:
+            if mcap >= 1e12:
+                mcap_str = f"{mcap / 1e12:.1f}T"
+            elif mcap >= 1e9:
+                mcap_str = f"{mcap / 1e9:.1f}B"
+            elif mcap >= 1e6:
+                mcap_str = f"{mcap / 1e6:.1f}M"
+            else:
+                mcap_str = f"{mcap:.0f}"
+        else:
+            mcap_str = "N/A"
+
+        pe_str = f"{pe:.1f}" if pd.notna(pe) and pe > 0 else "N/A"
+        rsi_str = f"{rsi:.1f}" if pd.notna(rsi) else "N/A"
+
+        click.echo(
+            f"{rank:>4}  {row['ticker']:<6}  {name:<20}  {sector_val:<18}  "
+            f"{row['composite_score']:>9.4f}  {row['technical_score']:>9.4f}  "
+            f"{row['fundamental_score']:>9.4f}  "
+            f"{price:>8.2f}  {rsi_str:>5}  {pe_str:>6}  {mcap_str:>10}"
+        )

@@ -149,6 +149,15 @@ class TestComputeIndicators:
         _, kwargs = compute_indicators(df, {"volume": False})
         assert kwargs["volume"] is False
 
+    @patch("stock_trading.charting.mpf.make_addplot")
+    def test_momentum_creates_two_addplots(self, mock_addplot):
+        df = _make_df(50)
+        mock_addplot.return_value = MagicMock()
+        indicators = {"momentum": 5, "volume": False}
+        addplots, _ = compute_indicators(df, indicators)
+        # swing highs scatter + swing lows scatter
+        assert len(addplots) == 2
+
 
 class TestRenderChart:
     @patch("stock_trading.charting.mpf.plot")
@@ -274,3 +283,12 @@ class TestChartCmd:
             result = runner.invoke(cli, ["chart", "--ticker", "AAPL", "--macd", "12,26"])
         assert "Error: --macd requires 3 comma-separated values" in result.output
         mock_plot.assert_not_called()
+
+    @patch("stock_trading.charting.mpf.plot")
+    def test_chart_with_momentum(self, mock_plot, in_memory_db):
+        self._seed(in_memory_db)
+        runner = CliRunner()
+        with patch("stock_trading.cli.db.get_connection", return_value=in_memory_db):
+            result = runner.invoke(cli, ["chart", "--ticker", "AAPL", "--momentum", "5"])
+        assert result.exit_code == 0
+        mock_plot.assert_called_once()
