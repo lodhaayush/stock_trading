@@ -33,6 +33,11 @@ def init_db(conn):
             forward_pe   REAL,
             dividend_yield REAL,
             beta         REAL,
+            target_high  REAL,
+            target_low   REAL,
+            target_mean  REAL,
+            target_median REAL,
+            num_analysts INTEGER,
             last_updated TEXT
         );
 
@@ -61,6 +66,19 @@ def init_db(conn):
         );
         """
     )
+
+    # Migrate existing databases: add columns if missing
+    for col, col_type in [
+        ("target_high", "REAL"),
+        ("target_low", "REAL"),
+        ("target_mean", "REAL"),
+        ("target_median", "REAL"),
+        ("num_analysts", "INTEGER"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE tickers ADD COLUMN {col} {col_type}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 def upsert_prices(conn, rows):
@@ -132,7 +150,8 @@ def query_all_fundamentals(conn):
     """Return all tickers with their fundamental data."""
     return conn.execute(
         "SELECT ticker, name, sector, industry, market_cap, "
-        "trailing_pe, forward_pe, dividend_yield, beta "
+        "trailing_pe, forward_pe, dividend_yield, beta, "
+        "target_high, target_low, target_mean, target_median, num_analysts "
         "FROM tickers"
     ).fetchall()
 

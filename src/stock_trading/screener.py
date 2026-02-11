@@ -362,6 +362,7 @@ def score_universe(conn, lookback_days=250, weights=None):
         "ticker", "name", "sector", "composite_score",
         "technical_score", "fundamental_score",
         "price", "rsi_value", "pe", "market_cap",
+        "target_mean", "target_high", "target_low", "num_analysts",
     ]
     available = [c for c in output_cols if c in merged.columns]
     return merged[available].reset_index(drop=True)

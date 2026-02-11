@@ -19,6 +19,11 @@ _FIELD_MAP = {
     "forwardPE": "forward_pe",
     "dividendYield": "dividend_yield",
     "beta": "beta",
+    "targetHighPrice": "target_high",
+    "targetLowPrice": "target_low",
+    "targetMeanPrice": "target_mean",
+    "targetMedianPrice": "target_median",
+    "numberOfAnalystOpinions": "num_analysts",
 }
 
 
@@ -58,7 +63,8 @@ def fetch_all_fundamentals(conn, limit=None):
             conn.execute(
                 "UPDATE tickers SET sector=?, industry=?, market_cap=?, "
                 "trailing_pe=?, forward_pe=?, dividend_yield=?, beta=?, "
-                "last_updated=? WHERE ticker=?",
+                "target_high=?, target_low=?, target_mean=?, target_median=?, "
+                "num_analysts=?, last_updated=? WHERE ticker=?",
                 (
                     data["sector"],
                     data["industry"],
@@ -67,6 +73,11 @@ def fetch_all_fundamentals(conn, limit=None):
                     data["forward_pe"],
                     data["dividend_yield"],
                     data["beta"],
+                    data["target_high"],
+                    data["target_low"],
+                    data["target_mean"],
+                    data["target_median"],
+                    data["num_analysts"],
                     now,
                     ticker,
                 ),

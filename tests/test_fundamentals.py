@@ -17,6 +17,11 @@ class TestFetchTickerFundamentals:
             "forwardPE": 25.0,
             "dividendYield": 0.005,
             "beta": 1.2,
+            "targetHighPrice": 350.0,
+            "targetLowPrice": 205.0,
+            "targetMeanPrice": 293.07,
+            "targetMedianPrice": 300.0,
+            "numberOfAnalystOpinions": 41,
         }
         result = fetch_ticker_fundamentals("AAPL")
         assert result == {
@@ -27,6 +32,11 @@ class TestFetchTickerFundamentals:
             "forward_pe": 25.0,
             "dividend_yield": 0.005,
             "beta": 1.2,
+            "target_high": 350.0,
+            "target_low": 205.0,
+            "target_mean": 293.07,
+            "target_median": 300.0,
+            "num_analysts": 41,
         }
         mock_yf.Ticker.assert_called_once_with("AAPL")
 
@@ -43,6 +53,9 @@ class TestFetchTickerFundamentals:
         assert result["forward_pe"] is None
         assert result["dividend_yield"] is None
         assert result["beta"] is None
+        assert result["target_high"] is None
+        assert result["target_mean"] is None
+        assert result["num_analysts"] is None
 
     @patch("stock_trading.fundamentals.yf")
     def test_exception_returns_none(self, mock_yf):
@@ -71,6 +84,11 @@ class TestFetchAllFundamentals:
                 "forward_pe": 25.0,
                 "dividend_yield": 0.005,
                 "beta": 1.2,
+                "target_high": 350.0,
+                "target_low": 205.0,
+                "target_mean": 293.07,
+                "target_median": 300.0,
+                "num_analysts": 41,
             },
             {
                 "sector": "Communication Services",
@@ -80,6 +98,11 @@ class TestFetchAllFundamentals:
                 "forward_pe": 20.0,
                 "dividend_yield": None,
                 "beta": 1.1,
+                "target_high": 250.0,
+                "target_low": 150.0,
+                "target_mean": 200.0,
+                "target_median": 195.0,
+                "num_analysts": 35,
             },
         ]
 
@@ -115,6 +138,11 @@ class TestFetchAllFundamentals:
             "forward_pe": 28.0,
             "dividend_yield": 0.008,
             "beta": 0.9,
+            "target_high": 400.0,
+            "target_low": 300.0,
+            "target_mean": 350.0,
+            "target_median": 345.0,
+            "num_analysts": 30,
         }
 
         result = fetch_all_fundamentals(in_memory_db, limit=2)
@@ -138,6 +166,11 @@ class TestFetchAllFundamentals:
                 "forward_pe": 25.0,
                 "dividend_yield": 0.005,
                 "beta": 1.2,
+                "target_high": 350.0,
+                "target_low": 205.0,
+                "target_mean": 293.07,
+                "target_median": 300.0,
+                "num_analysts": 41,
             },
             None,
         ]

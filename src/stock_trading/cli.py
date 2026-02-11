@@ -265,7 +265,7 @@ def recommend_cmd(top, sector, min_market_cap, technical_weight, fundamental_wei
     header = (
         f"{'Rank':>4}  {'Ticker':<6}  {'Name':<20}  {'Sector':<18}  "
         f"{'Composite':>9}  {'Technical':>9}  {'Fundmntl':>9}  "
-        f"{'Price':>8}  {'RSI':>5}  {'P/E':>6}  {'MktCap':>10}"
+        f"{'Price':>8}  {'RSI':>5}  {'P/E':>6}  {'Target':>12}  {'MktCap':>10}"
     )
     separator = "-" * len(header)
 
@@ -297,9 +297,17 @@ def recommend_cmd(top, sector, min_market_cap, technical_weight, fundamental_wei
         pe_str = f"{pe:.1f}" if pd.notna(pe) and pe > 0 else "N/A"
         rsi_str = f"{rsi:.1f}" if pd.notna(rsi) else "N/A"
 
+        target_mean = row.get("target_mean")
+        if pd.notna(target_mean) and target_mean > 0 and pd.notna(price) and price > 0:
+            upside = (target_mean - price) / price * 100
+            sign = "+" if upside >= 0 else ""
+            target_str = f"{target_mean:.0f}({sign}{upside:.0f}%)"
+        else:
+            target_str = "N/A"
+
         click.echo(
             f"{rank:>4}  {row['ticker']:<6}  {name:<20}  {sector_val:<18}  "
             f"{row['composite_score']:>9.4f}  {row['technical_score']:>9.4f}  "
             f"{row['fundamental_score']:>9.4f}  "
-            f"{price:>8.2f}  {rsi_str:>5}  {pe_str:>6}  {mcap_str:>10}"
+            f"{price:>8.2f}  {rsi_str:>5}  {pe_str:>6}  {target_str:>12}  {mcap_str:>10}"
         )
