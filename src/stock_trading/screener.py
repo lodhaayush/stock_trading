@@ -252,8 +252,10 @@ def compute_fundamental_scores(fundamentals_df):
     df = fundamentals_df.copy()
 
     # Ensure numeric types for all scoring columns
-    for col in ("trailing_pe", "forward_pe", "dividend_yield", "beta", "market_cap"):
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    for col in ("trailing_pe", "forward_pe", "dividend_yield", "beta", "market_cap",
+                "target_median", "price"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # P/E: forward preferred, fallback trailing. Lower is better.
     df["pe"] = df["forward_pe"].fillna(df["trailing_pe"])
@@ -273,12 +275,24 @@ def compute_fundamental_scores(fundamentals_df):
     # Market cap: larger is more stable.
     df["market_cap_score"] = df["market_cap"].rank(pct=True, na_option="keep").fillna(0.0)
 
+    # Target upside: (target_median - price) / price. Higher upside = better.
+    if "price" in df.columns and "target_median" in df.columns:
+        df.loc[df["price"] <= 0, "price"] = np.nan
+        df["target_upside"] = (df["target_median"] - df["price"]) / df["price"]
+        df["target_upside_score"] = df["target_upside"].rank(
+            pct=True, na_option="keep"
+        ).fillna(0.0)
+    else:
+        df["target_upside"] = np.nan
+        df["target_upside_score"] = 0.0
+
     # Combined
     df["fundamental_score"] = (
-        0.30 * df["pe_score"]
-        + 0.25 * df["dividend_score"]
-        + 0.20 * df["beta_score"]
+        0.25 * df["pe_score"]
+        + 0.20 * df["dividend_score"]
+        + 0.15 * df["beta_score"]
         + 0.25 * df["market_cap_score"]
+        + 0.15 * df["target_upside_score"]
     )
 
     return df
@@ -343,11 +357,17 @@ def score_universe(conn, lookback_days=250, weights=None):
 
     tech_df = pd.DataFrame(tech_results)
 
+    # Enrich fundamentals with current price for target upside scoring
+    fund_with_price = pd.merge(
+        fund_df, tech_df[["ticker", "price"]], on="ticker", how="left",
+    )
+
     # Compute fundamental scores
     logger.info("Computing fundamental scores...")
-    fund_scored = compute_fundamental_scores(fund_df)
+    fund_scored = compute_fundamental_scores(fund_with_price)
 
-    # Merge
+    # Merge — drop price from fund_scored to avoid duplicate with tech_df
+    fund_scored = fund_scored.drop(columns=["price"], errors="ignore")
     merged = pd.merge(tech_df, fund_scored, on="ticker", how="inner")
 
     # Composite score
@@ -363,6 +383,7 @@ def score_universe(conn, lookback_days=250, weights=None):
         "technical_score", "fundamental_score",
         "price", "rsi_value", "pe", "market_cap",
         "target_mean", "target_high", "target_low", "num_analysts",
+        "target_upside",
     ]
     available = [c for c in output_cols if c in merged.columns]
     return merged[available].reset_index(drop=True)

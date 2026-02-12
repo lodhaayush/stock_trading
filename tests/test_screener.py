@@ -44,14 +44,17 @@ def _seed_db(conn, tickers_data, n_prices=250):
         conn.execute(
             "INSERT OR REPLACE INTO tickers "
             "(ticker, name, exchange, sector, industry, market_cap, "
-            "trailing_pe, forward_pe, dividend_yield, beta) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "trailing_pe, forward_pe, dividend_yield, beta, "
+            "target_median, target_high, target_low, num_analysts) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 t["ticker"], t.get("name", t["ticker"]),
                 t.get("exchange", "NASDAQ"), t.get("sector", "Technology"),
                 t.get("industry", "Software"), t.get("market_cap", 1e9),
                 t.get("trailing_pe", 20.0), t.get("forward_pe", 18.0),
                 t.get("dividend_yield", 0.01), t.get("beta", 1.0),
+                t.get("target_median"), t.get("target_high"),
+                t.get("target_low"), t.get("num_analysts"),
             ),
         )
         base = 100.0 + rng.random() * 50
@@ -316,13 +319,19 @@ class TestScoreUniverse:
         tickers_data = [
             {"ticker": "AAPL", "name": "Apple", "sector": "Technology",
              "market_cap": 3e12, "trailing_pe": 28.0, "forward_pe": 25.0,
-             "dividend_yield": 0.005, "beta": 1.2},
+             "dividend_yield": 0.005, "beta": 1.2,
+             "target_median": 250.0, "target_high": 280.0, "target_low": 200.0,
+             "num_analysts": 30},
             {"ticker": "GOOG", "name": "Alphabet", "sector": "Communication",
              "market_cap": 2e12, "trailing_pe": 22.0, "forward_pe": 20.0,
-             "dividend_yield": 0.0, "beta": 1.1},
+             "dividend_yield": 0.0, "beta": 1.1,
+             "target_median": 200.0, "target_high": 230.0, "target_low": 170.0,
+             "num_analysts": 25},
             {"ticker": "JNJ", "name": "J&J", "sector": "Healthcare",
              "market_cap": 4e11, "trailing_pe": 15.0, "forward_pe": 14.0,
-             "dividend_yield": 0.025, "beta": 0.7},
+             "dividend_yield": 0.025, "beta": 0.7,
+             "target_median": 180.0, "target_high": 200.0, "target_low": 150.0,
+             "num_analysts": 20},
         ]
         _seed_db(in_memory_db, tickers_data, n_prices=250)
         result = score_universe(in_memory_db, lookback_days=400)
@@ -358,10 +367,14 @@ class TestRecommendCmd:
     TICKERS_DATA = [
         {"ticker": "AAPL", "name": "Apple", "sector": "Technology",
          "market_cap": 3e12, "trailing_pe": 28.0, "forward_pe": 25.0,
-         "dividend_yield": 0.005, "beta": 1.2},
+         "dividend_yield": 0.005, "beta": 1.2,
+         "target_median": 250.0, "target_high": 280.0, "target_low": 200.0,
+         "num_analysts": 30},
         {"ticker": "GOOG", "name": "Alphabet", "sector": "Communication",
          "market_cap": 2e12, "trailing_pe": 22.0, "forward_pe": 20.0,
-         "dividend_yield": 0.0, "beta": 1.1},
+         "dividend_yield": 0.0, "beta": 1.1,
+         "target_median": 200.0, "target_high": 230.0, "target_low": 170.0,
+         "num_analysts": 25},
     ]
 
     def _seed(self, conn):
@@ -422,3 +435,81 @@ class TestRecommendCmd:
         assert result.exit_code == 0
         assert "BIG" in result.output
         assert "TINY" not in result.output
+
+
+class TestTargetUpsideScore:
+    def test_higher_upside_gets_higher_score(self):
+        """Ticker with 50% upside should score higher than 10% upside."""
+        df = pd.DataFrame({
+            "ticker": ["A", "B", "C"],
+            "trailing_pe": [20.0, 20.0, 20.0],
+            "forward_pe": [18.0, 18.0, 18.0],
+            "dividend_yield": [0.01, 0.01, 0.01],
+            "beta": [1.0, 1.0, 1.0],
+            "market_cap": [1e10, 1e10, 1e10],
+            "price": [100.0, 100.0, 100.0],
+            "target_median": [150.0, 110.0, 90.0],
+        })
+        result = compute_fundamental_scores(df)
+        # A has 50% upside, B has 10%, C has -10%
+        assert result.loc[0, "target_upside_score"] > result.loc[1, "target_upside_score"]
+        assert result.loc[1, "target_upside_score"] > result.loc[2, "target_upside_score"]
+
+    def test_missing_target_gets_zero_score(self):
+        """Tickers without target_median should get 0.0 upside score."""
+        df = pd.DataFrame({
+            "ticker": ["A", "B"],
+            "trailing_pe": [20.0, 20.0],
+            "forward_pe": [18.0, 18.0],
+            "dividend_yield": [0.01, 0.01],
+            "beta": [1.0, 1.0],
+            "market_cap": [1e10, 1e10],
+            "price": [100.0, 100.0],
+            "target_median": [150.0, np.nan],
+        })
+        result = compute_fundamental_scores(df)
+        assert result.loc[1, "target_upside_score"] == 0.0
+
+    def test_missing_price_gets_zero_score(self):
+        """Tickers without price should get 0.0 upside score."""
+        df = pd.DataFrame({
+            "ticker": ["A"],
+            "trailing_pe": [20.0],
+            "forward_pe": [18.0],
+            "dividend_yield": [0.01],
+            "beta": [1.0],
+            "market_cap": [1e10],
+            "price": [np.nan],
+            "target_median": [150.0],
+        })
+        result = compute_fundamental_scores(df)
+        assert result.loc[0, "target_upside_score"] == 0.0
+
+    def test_no_price_column_backward_compat(self):
+        """Function should work without price column."""
+        df = pd.DataFrame({
+            "ticker": ["A"],
+            "trailing_pe": [20.0],
+            "forward_pe": [18.0],
+            "dividend_yield": [0.01],
+            "beta": [1.0],
+            "market_cap": [1e10],
+        })
+        result = compute_fundamental_scores(df)
+        assert result.loc[0, "target_upside_score"] == 0.0
+        assert 0.0 <= result.loc[0, "fundamental_score"] <= 1.0
+
+    def test_zero_price_treated_as_nan(self):
+        """Price of 0 should not cause division error."""
+        df = pd.DataFrame({
+            "ticker": ["A"],
+            "trailing_pe": [20.0],
+            "forward_pe": [18.0],
+            "dividend_yield": [0.01],
+            "beta": [1.0],
+            "market_cap": [1e10],
+            "price": [0.0],
+            "target_median": [150.0],
+        })
+        result = compute_fundamental_scores(df)
+        assert result.loc[0, "target_upside_score"] == 0.0
