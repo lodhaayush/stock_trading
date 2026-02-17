@@ -311,3 +311,46 @@ def recommend_cmd(top, sector, min_market_cap, technical_weight, fundamental_wei
             f"{row['fundamental_score']:>9.4f}  "
             f"{price:>8.2f}  {rsi_str:>5}  {pe_str:>6}  {target_str:>12}  {mcap_str:>10}"
         )
+
+
+@cli.command("backtest")
+@click.option("--tickers", required=True, help="Comma-separated ticker list.")
+@click.option("--start", required=True, help="Start date (YYYY-MM-DD).")
+@click.option("--end", default=None, help="End date (YYYY-MM-DD).")
+@click.option("--capital", default=100000.0, type=float, show_default=True,
+              help="Initial capital.")
+@click.option("--strategy", default="golden_cross",
+              type=click.Choice(["golden_cross", "rsi_mean_reversion",
+                                 "macd_crossover"]),
+              show_default=True, help="Built-in strategy to use.")
+@click.option("--output", "-o", default=None,
+              help="Save equity curve chart to file.")
+def backtest_cmd(tickers, start, end, capital, strategy, output):
+    """Run a backtest with a built-in strategy."""
+    import logging
+    from stock_trading import backtester
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    conn = db.get_connection()
+    db.init_db(conn)
+
+    tickers_list = [t.strip().upper() for t in tickers.split(",")]
+    signal_fn = backtester.BUILTIN_STRATEGIES[strategy]
+
+    config = backtester.BacktestConfig(
+        tickers=tickers_list,
+        start_date=start,
+        end_date=end,
+        initial_capital=capital,
+        signal_fn=signal_fn,
+        name=strategy,
+    )
+
+    result = backtester.run_backtest(conn, config)
+    conn.close()
+
+    click.echo(backtester.format_results(result))
+
+    if output:
+        backtester.plot_equity_curve(result, output=output)
+        click.echo(f"\nEquity curve saved to {output}")
