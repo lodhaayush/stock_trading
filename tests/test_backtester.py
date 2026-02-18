@@ -605,3 +605,4 @@ class TestBenchmark:
         assert "Gold" in output
         assert "Silver" in output
         assert "Copper" in output
+        assert "Bitcoin" in output

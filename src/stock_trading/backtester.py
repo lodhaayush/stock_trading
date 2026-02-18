@@ -18,6 +18,7 @@ METALS_BENCHMARKS = {
     "GLD": "Gold",
     "SLV": "Silver",
     "CPER": "Copper",
+    "BTC-USD": "Bitcoin",
 }
 
 
@@ -562,7 +563,7 @@ def format_results(result):
     metals = result.metals_benchmarks if hasattr(result, "metals_benchmarks") else {}
     if metals:
         lines.append("")
-        lines.append(f"  Metals Buy & Hold:")
+        lines.append(f"  Alternative Assets Buy & Hold:")
         for label, mbm in metals.items():
             lines.append(
                 f"    {label + ':':<9s} Return {mbm['total_return']:+.2%}  "
