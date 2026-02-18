@@ -569,3 +569,39 @@ class TestBenchmark:
         result = run_backtest(in_memory_db, config)
         output = format_results(result)
         assert "Buy & Hold" in output
+
+    def test_metals_benchmarks_in_result(self, in_memory_db):
+        """BacktestResult should include metals_benchmarks field."""
+        from stock_trading.backtester import run_backtest, BacktestConfig, METALS_BENCHMARKS
+        _seed_backtest_db(in_memory_db,
+            ["AAPL"] + list(METALS_BENCHMARKS.keys()), n_prices=100)
+
+        config = BacktestConfig(
+            tickers=["AAPL"], start_date="2020-01-01", end_date=None,
+            initial_capital=100000.0,
+            signal_fn=lambda df: pd.Series(0, index=df.index),
+            name="test",
+        )
+        result = run_backtest(in_memory_db, config)
+        assert hasattr(result, "metals_benchmarks")
+        assert isinstance(result.metals_benchmarks, dict)
+
+    def test_format_results_shows_metals(self, in_memory_db):
+        """format_results should show Gold, Silver, Copper benchmarks."""
+        from stock_trading.backtester import (
+            run_backtest, BacktestConfig, format_results, METALS_BENCHMARKS
+        )
+        _seed_backtest_db(in_memory_db,
+            ["AAPL"] + list(METALS_BENCHMARKS.keys()), n_prices=100)
+
+        config = BacktestConfig(
+            tickers=["AAPL"], start_date="2020-01-01", end_date=None,
+            initial_capital=100000.0,
+            signal_fn=lambda df: pd.Series(0, index=df.index),
+            name="test",
+        )
+        result = run_backtest(in_memory_db, config)
+        output = format_results(result)
+        assert "Gold" in output
+        assert "Silver" in output
+        assert "Copper" in output

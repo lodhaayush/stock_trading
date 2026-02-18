@@ -14,6 +14,12 @@ from stock_trading.charting import rows_to_dataframe
 
 logger = logging.getLogger(__name__)
 
+METALS_BENCHMARKS = {
+    "GLD": "Gold",
+    "SLV": "Silver",
+    "CPER": "Copper",
+}
+
 
 @dataclasses.dataclass
 class BacktestConfig:
@@ -66,6 +72,7 @@ class BacktestResult:
     equity_curve: pd.DataFrame
     benchmark: dict | None = None
     portfolio_benchmark: dict | None = None
+    metals_benchmarks: dict = dataclasses.field(default_factory=dict)
 
 
 def add_indicators(df):
@@ -434,6 +441,16 @@ def run_backtest(conn, config):
         config.initial_capital,
     )
 
+    # Compute metals benchmarks
+    metals = {}
+    for ticker, label in METALS_BENCHMARKS.items():
+        bm = compute_benchmark(
+            conn, ticker, config.start_date, config.end_date,
+            config.initial_capital,
+        )
+        if bm is not None:
+            metals[label] = bm
+
     return BacktestResult(
         config_name=config.name, tickers=config.tickers,
         start_date=config.start_date, end_date=end_date,
@@ -447,6 +464,7 @@ def run_backtest(conn, config):
         trades=closed_trades, equity_curve=equity_curve,
         benchmark=benchmark,
         portfolio_benchmark=portfolio_benchmark,
+        metals_benchmarks=metals,
     )
 
 
@@ -539,6 +557,18 @@ def format_results(result):
         lines.append(f"    Max Drawdown:       {pbm['max_drawdown']:.2%}")
         alpha = result.annualized_return - pbm["annualized_return"]
         lines.append(f"    Strategy Alpha:     {alpha:+.2%}")
+
+    # Metals benchmarks
+    metals = result.metals_benchmarks if hasattr(result, "metals_benchmarks") else {}
+    if metals:
+        lines.append("")
+        lines.append(f"  Metals Buy & Hold:")
+        for label, mbm in metals.items():
+            lines.append(
+                f"    {label + ':':<9s} Return {mbm['total_return']:+.2%}  "
+                f"Sharpe {mbm['sharpe_ratio']:.2f}  "
+                f"Drawdown {mbm['max_drawdown']:.2%}"
+            )
 
     if result.trades:
         lines.append("")
