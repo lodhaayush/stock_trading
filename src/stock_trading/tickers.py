@@ -84,7 +84,7 @@ def fetch_sec_edgar_tickers():
     return tickers
 
 
-_SPECIAL_CHARS = re.compile(r"[.\$\-]")
+_SPECIAL_CHARS = re.compile(r"[\$\-]")
 _TEST_WORD = re.compile(r"\btest\b", re.IGNORECASE)
 _EXCLUDE_KEYWORDS = {"warrant", "unit", "right", "preferred"}
 
@@ -92,7 +92,7 @@ _EXCLUDE_KEYWORDS = {"warrant", "unit", "right", "preferred"}
 def filter_tickers(tickers):
     """Filter out non-common-stock tickers.
 
-    Removes symbols containing '.', '$', or '-', symbols longer than 5 chars,
+    Removes symbols containing '$' or '-', symbols longer than 5 chars,
     and names containing warrant/unit/right/preferred (case-insensitive)
     or 'test' as a standalone word.
     """

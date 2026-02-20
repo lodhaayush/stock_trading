@@ -29,11 +29,11 @@ class TestFilterTickers:
         assert len(result) == 3
         assert {t["ticker"] for t in result} == {"AAPL", "MSFT", "GOOGL"}
 
-    def test_removes_symbols_with_dot(self):
+    def test_keeps_symbols_with_dot(self):
         tickers = [
             {"ticker": "BRK.B", "name": "Berkshire Hathaway", "exchange": "NYSE"},
         ]
-        assert filter_tickers(tickers) == []
+        assert filter_tickers(tickers) == tickers
 
     def test_removes_symbols_with_dollar(self):
         tickers = [
@@ -230,8 +230,9 @@ class TestFetchAllTickers:
             {"ticker": "WARW", "name": "Some Warrant", "exchange": "NYSE"},
         ]
         result = fetch_all_tickers()
-        assert len(result) == 1
+        assert len(result) == 2
         assert result[0]["ticker"] == "AAPL"
+        assert result[1]["ticker"] == "BRK.B"
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,11 @@ from stock_trading.config import (
 logger = logging.getLogger(__name__)
 
 
+def _yf_symbol(ticker):
+    """Convert DB ticker to yfinance symbol (e.g. BRK.B -> BRK-B)."""
+    return ticker.replace(".", "-")
+
+
 def download_batch(conn, tickers, period="max"):
     """Download price data for a batch of tickers and store in the database.
 
@@ -36,11 +41,15 @@ def download_batch(conn, tickers, period="max"):
     if not tickers:
         return stats
 
+    # Map DB tickers to yfinance symbols (dots -> hyphens)
+    yf_symbols = [_yf_symbol(t) for t in tickers]
+    yf_to_db = dict(zip(yf_symbols, tickers))
+
     try:
-        if len(tickers) == 1:
-            data = yf.download(tickers[0], period=period, threads=True)
+        if len(yf_symbols) == 1:
+            data = yf.download(yf_symbols[0], period=period, threads=True)
         else:
-            data = yf.download(tickers, period=period, group_by="ticker", threads=True)
+            data = yf.download(yf_symbols, period=period, group_by="ticker", threads=True)
     except Exception as exc:
         logger.error("yf.download failed for batch: %s", exc)
         for t in tickers:
@@ -54,16 +63,16 @@ def download_batch(conn, tickers, period="max"):
         stats["failed"] += len(tickers)
         return stats
 
-    for ticker in tickers:
+    for yf_sym, ticker in zip(yf_symbols, tickers):
         try:
             if len(tickers) == 1:
                 ticker_df = data.copy()
             else:
-                if ticker not in data.columns.get_level_values(0):
+                if yf_sym not in data.columns.get_level_values(0):
                     db.update_download_log(conn, ticker, "no_data")
                     stats["failed"] += 1
                     continue
-                ticker_df = data[ticker].copy()
+                ticker_df = data[yf_sym].copy()
 
             # Normalize column names to lowercase
             ticker_df.columns = [c.lower() for c in ticker_df.columns]
