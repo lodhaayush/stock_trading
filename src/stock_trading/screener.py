@@ -387,3 +387,85 @@ def score_universe(conn, lookback_days=250, weights=None):
     ]
     available = [c for c in output_cols if c in merged.columns]
     return merged[available].reset_index(drop=True)
+
+
+def rank_movers(conn, days=5, volume_baseline_days=20):
+    """Rank tickers by price return over recent trading days with volume surge.
+
+    Computes the percentage price change over the last ``days`` trading days
+    and a volume surge ratio comparing the period's average daily volume to a
+    longer ``volume_baseline_days`` baseline.
+
+    Returns a DataFrame sorted by return_pct descending, or an empty
+    DataFrame if no data is available.
+    """
+    if days < 1:
+        raise ValueError("days must be >= 1")
+    volume_baseline_days = max(volume_baseline_days, days)
+
+    # Fetch enough calendar days to cover volume_baseline_days trading days
+    lookback_calendar = int(volume_baseline_days * 1.5) + 10
+    price_rows = db.query_recent_prices(conn, lookback_days=lookback_calendar)
+
+    if not price_rows:
+        logger.warning("No price data found.")
+        return pd.DataFrame()
+
+    fund_rows = db.query_all_fundamentals(conn)
+    fund_df = pd.DataFrame([dict(r) for r in fund_rows]) if fund_rows else pd.DataFrame()
+
+    results = []
+    grouped = groupby(price_rows, key=lambda r: r["ticker"])
+
+    for ticker, rows_iter in grouped:
+        rows = list(rows_iter)
+
+        baseline_rows = rows[-volume_baseline_days:]
+        period_rows = rows[-days:]
+
+        if len(period_rows) < days:
+            continue
+
+        first_close = period_rows[0]["close"]
+        last_close = period_rows[-1]["close"]
+
+        if first_close is None or first_close == 0:
+            return_pct = float("nan")
+        else:
+            return_pct = (last_close - first_close) / first_close
+
+        avg_volume = sum(r["volume"] for r in period_rows) / len(period_rows)
+        baseline_avg_volume = (
+            sum(r["volume"] for r in baseline_rows) / len(baseline_rows)
+        )
+
+        if baseline_avg_volume == 0:
+            volume_surge = float("nan")
+        else:
+            volume_surge = avg_volume / baseline_avg_volume
+
+        results.append({
+            "ticker": ticker,
+            "first_date": period_rows[0]["date"],
+            "last_date": period_rows[-1]["date"],
+            "first_close": first_close,
+            "last_close": last_close,
+            "return_pct": return_pct,
+            "avg_volume": avg_volume,
+            "baseline_avg_volume": baseline_avg_volume,
+            "volume_surge": volume_surge,
+        })
+
+    if not results:
+        logger.warning("No tickers had enough data for movers ranking.")
+        return pd.DataFrame()
+
+    df = pd.DataFrame(results)
+
+    if not fund_df.empty and "ticker" in fund_df.columns:
+        fund_cols = ["ticker", "name", "sector", "market_cap"]
+        available = [c for c in fund_cols if c in fund_df.columns]
+        df = pd.merge(df, fund_df[available], on="ticker", how="left")
+
+    df = df.sort_values("return_pct", ascending=False).reset_index(drop=True)
+    return df

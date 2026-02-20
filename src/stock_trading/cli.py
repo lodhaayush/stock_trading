@@ -313,6 +313,115 @@ def recommend_cmd(top, sector, min_market_cap, technical_weight, fundamental_wei
         )
 
 
+@cli.command("movers")
+@click.option("--top", default=20, type=int, show_default=True,
+              help="Number of movers to display.")
+@click.option("--days", default=5, type=int, show_default=True,
+              help="Number of trading days for return calculation.")
+@click.option("--sort", "sort_dir", default="gainers",
+              type=click.Choice(["gainers", "losers", "both"]),
+              show_default=True,
+              help="Sort direction: top gainers, top losers, or both extremes.")
+@click.option("--sector", default=None,
+              help="Filter results by sector (case-insensitive).")
+@click.option("--min-market-cap", default=None, type=float,
+              help="Minimum market cap filter (e.g. 1e9 for $1B).")
+@click.option("--min-volume-surge", default=None, type=float,
+              help="Minimum volume surge ratio (e.g. 1.5 for 50%% above average).")
+def movers_cmd(top, days, sort_dir, sector, min_market_cap, min_volume_surge):
+    """Rank tickers by recent price return with volume confirmation."""
+    import logging
+
+    import pandas as pd
+
+    from stock_trading import screener
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    conn = db.get_connection()
+    db.init_db(conn)
+
+    results = screener.rank_movers(conn, days=days)
+    conn.close()
+
+    if results.empty:
+        click.echo("No results. Ensure you have price data loaded.")
+        return
+
+    # Apply filters
+    if sector:
+        results = results[results["sector"].str.lower() == sector.lower()]
+    if min_market_cap is not None and "market_cap" in results.columns:
+        results = results[results["market_cap"] >= min_market_cap]
+    if min_volume_surge is not None:
+        results = results[results["volume_surge"] >= min_volume_surge]
+
+    if results.empty:
+        click.echo("No results match the specified filters.")
+        return
+
+    # Sort direction
+    if sort_dir == "losers":
+        display = results.sort_values("return_pct", ascending=True).head(top)
+        label = "Losers"
+    elif sort_dir == "both":
+        half = max(top // 2, 1)
+        gainers = results.head(half)
+        losers = results.sort_values("return_pct", ascending=True).head(half)
+        display = pd.concat([gainers, losers]).drop_duplicates(subset="ticker")
+        label = "Movers (gainers + losers)"
+    else:
+        display = results.head(top)
+        label = "Gainers"
+
+    click.echo(f"\nTop {len(display)} {label} ({days}-day return)")
+    click.echo("")
+
+    header = (
+        f"{'Rank':>4}  {'Ticker':<6}  {'Name':<20}  {'Sector':<18}  "
+        f"{'Return':>8}  {'Vol Surge':>9}  {'Price':>8}  {'MktCap':>10}"
+    )
+    separator = "-" * len(header)
+
+    click.echo(header)
+    click.echo(separator)
+
+    for rank, (_, row) in enumerate(display.iterrows(), start=1):
+        raw_name = row.get("name")
+        name = (str(raw_name) if pd.notna(raw_name) else "")[:20]
+        raw_sector = row.get("sector")
+        sector_val = (str(raw_sector) if pd.notna(raw_sector) else "")[:18]
+
+        ret = row.get("return_pct", 0)
+        if pd.notna(ret):
+            sign = "+" if ret >= 0 else ""
+            ret_str = f"{sign}{ret * 100:.1f}%"
+        else:
+            ret_str = "N/A"
+
+        vs = row.get("volume_surge")
+        vs_str = f"{vs:.1f}x" if pd.notna(vs) else "N/A"
+
+        price = row.get("last_close", 0)
+
+        mcap = row.get("market_cap", 0)
+        if pd.notna(mcap) and mcap > 0:
+            if mcap >= 1e12:
+                mcap_str = f"{mcap / 1e12:.1f}T"
+            elif mcap >= 1e9:
+                mcap_str = f"{mcap / 1e9:.1f}B"
+            elif mcap >= 1e6:
+                mcap_str = f"{mcap / 1e6:.1f}M"
+            else:
+                mcap_str = f"{mcap:.0f}"
+        else:
+            mcap_str = "N/A"
+
+        click.echo(
+            f"{rank:>4}  {row['ticker']:<6}  {name:<20}  {sector_val:<18}  "
+            f"{ret_str:>8}  {vs_str:>9}  {price:>8.2f}  {mcap_str:>10}"
+        )
+
+
 @cli.command("backtest")
 @click.option("--tickers", required=True, help="Comma-separated ticker list.")
 @click.option("--start", required=True, help="Start date (YYYY-MM-DD).")

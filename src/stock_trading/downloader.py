@@ -103,7 +103,7 @@ def download_batch(conn, tickers, period="max"):
                     float(row.get("low", 0) or 0),
                     float(row.get("close", 0) or 0),
                     int(row.get("volume", 0) or 0),
-                    float(row.get("adj close", 0) or 0),
+                    float(row.get("adj close", row.get("close", 0)) or 0),
                 ))
 
             db.upsert_prices(conn, rows)

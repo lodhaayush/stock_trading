@@ -146,6 +146,15 @@ def query_prices(conn, ticker, start_date=None, end_date=None):
     return conn.execute(sql, params).fetchall()
 
 
+def get_last_close(conn, ticker):
+    """Return the most recent close price for a ticker, or None."""
+    row = conn.execute(
+        "SELECT close FROM daily_prices WHERE ticker = ? ORDER BY date DESC LIMIT 1",
+        (ticker,),
+    ).fetchone()
+    return row["close"] if row else None
+
+
 def query_all_fundamentals(conn):
     """Return all tickers with their fundamental data."""
     return conn.execute(

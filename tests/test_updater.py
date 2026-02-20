@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from stock_trading.db import init_db, upsert_ticker, upsert_prices
-from stock_trading.updater import run_daily_update, detect_delistings
+from stock_trading.updater import run_daily_update, detect_delistings, _has_recent_split
 
 
 class TestRunDailyUpdate:
@@ -35,11 +35,13 @@ class TestRunDailyUpdate:
         assert result["prices_updated"] == 2
         assert result["new_rows"] == 100
 
+    @patch("stock_trading.updater._has_recent_split", return_value=False)
     @patch("stock_trading.updater.yf.download")
     @patch("stock_trading.updater.download_batch")
     @patch("stock_trading.updater.tickers_mod.sync_tickers")
     def test_incremental_update_uses_start_date(
-        self, mock_sync, mock_download_batch, mock_yf_download, in_memory_db
+        self, mock_sync, mock_download_batch, mock_yf_download,
+        mock_split, in_memory_db
     ):
         """Tickers with existing price data get incremental updates."""
         init_db(in_memory_db)
@@ -63,11 +65,13 @@ class TestRunDailyUpdate:
         call_kwargs = mock_yf_download.call_args
         assert call_kwargs[1]["start"] == "2024-01-11"
 
+    @patch("stock_trading.updater._has_recent_split", return_value=False)
     @patch("stock_trading.updater.yf.download")
     @patch("stock_trading.updater.download_batch")
     @patch("stock_trading.updater.tickers_mod.sync_tickers")
     def test_mixed_fresh_and_incremental(
-        self, mock_sync, mock_download_batch, mock_yf_download, in_memory_db
+        self, mock_sync, mock_download_batch, mock_yf_download,
+        mock_split, in_memory_db
     ):
         """Both fresh and incremental tickers are processed."""
         init_db(in_memory_db)
@@ -126,6 +130,98 @@ class TestRunDailyUpdate:
         result = run_daily_update(in_memory_db, include_fundamentals=True)
 
         mock_fundamentals.fetch_all_fundamentals.assert_called_once_with(in_memory_db)
+
+    @patch("stock_trading.updater._has_recent_split", return_value=True)
+    @patch("stock_trading.updater.yf.download")
+    @patch("stock_trading.updater.download_batch")
+    @patch("stock_trading.updater.tickers_mod.sync_tickers")
+    def test_detects_split_and_redownloads(
+        self, mock_sync, mock_download_batch, mock_yf_download,
+        mock_split, in_memory_db
+    ):
+        """Tickers with detected splits get full re-download instead of incremental."""
+        init_db(in_memory_db)
+        upsert_ticker(in_memory_db, "FCUV", name="Focus Universal", exchange="NASDAQ")
+        upsert_prices(in_memory_db, [
+            ("FCUV", "2024-01-10", 1.0, 1.05, 0.95, 1.0, 100000, 1.0),
+        ])
+
+        mock_sync.return_value = {"total": 1, "new": 0, "updated": 1}
+        mock_download_batch.return_value = {"downloaded": 1, "failed": 0, "rows": 500}
+
+        result = run_daily_update(in_memory_db)
+
+        # _has_recent_split returns True, so yf.download should NOT be called
+        # (split ticker removed from incremental batch)
+        mock_yf_download.assert_not_called()
+        # download_batch should be called with period="max" for re-download
+        mock_download_batch.assert_called_once()
+        call_args = mock_download_batch.call_args
+        assert call_args[0][1] == ["FCUV"]
+        assert call_args[1].get("period") == "max" or call_args[0][2] == "max"
+        assert result["prices_updated"] == 1
+
+    @patch("stock_trading.updater._has_recent_split", return_value=False)
+    @patch("stock_trading.updater.yf.download")
+    @patch("stock_trading.updater.download_batch")
+    @patch("stock_trading.updater.tickers_mod.sync_tickers")
+    def test_no_split_normal_update(
+        self, mock_sync, mock_download_batch, mock_yf_download,
+        mock_split, in_memory_db
+    ):
+        """Tickers without splits proceed with normal incremental update."""
+        init_db(in_memory_db)
+        upsert_ticker(in_memory_db, "AAPL", name="Apple", exchange="NASDAQ")
+        upsert_prices(in_memory_db, [
+            ("AAPL", "2024-01-10", 100.0, 105.0, 99.0, 104.0, 1000000, 104.0),
+        ])
+
+        mock_sync.return_value = {"total": 1, "new": 0, "updated": 1}
+        mock_yf_download.return_value = pd.DataFrame()
+
+        run_daily_update(in_memory_db)
+
+        # No split → download_batch not called, yf.download called for incremental
+        mock_download_batch.assert_not_called()
+        mock_yf_download.assert_called_once()
+
+
+class TestHasRecentSplit:
+    @patch("stock_trading.updater.yf.Ticker")
+    def test_returns_true_for_recent_split(self, mock_ticker_cls):
+        mock_ticker = MagicMock()
+        mock_ticker.splits = pd.Series(
+            [0.1], index=pd.DatetimeIndex(["2024-02-01"], tz="US/Eastern"),
+            name="Stock Splits",
+        )
+        mock_ticker_cls.return_value = mock_ticker
+
+        assert _has_recent_split("FCUV", "2024-01-15") is True
+
+    @patch("stock_trading.updater.yf.Ticker")
+    def test_returns_false_for_old_split(self, mock_ticker_cls):
+        mock_ticker = MagicMock()
+        mock_ticker.splits = pd.Series(
+            [2.0], index=pd.DatetimeIndex(["2023-06-01"], tz="US/Eastern"),
+            name="Stock Splits",
+        )
+        mock_ticker_cls.return_value = mock_ticker
+
+        assert _has_recent_split("AAPL", "2024-01-01") is False
+
+    @patch("stock_trading.updater.yf.Ticker")
+    def test_returns_false_for_no_splits(self, mock_ticker_cls):
+        mock_ticker = MagicMock()
+        mock_ticker.splits = pd.Series([], dtype=float, name="Stock Splits")
+        mock_ticker_cls.return_value = mock_ticker
+
+        assert _has_recent_split("GOOG", "2024-01-01") is False
+
+    @patch("stock_trading.updater.yf.Ticker")
+    def test_handles_exception_gracefully(self, mock_ticker_cls):
+        mock_ticker_cls.side_effect = Exception("API error")
+
+        assert _has_recent_split("BAD", "2024-01-01") is False
 
 
 class TestDetectDelistings:

@@ -1,6 +1,7 @@
 """Tests for stock_trading.db module."""
 
 from stock_trading.db import (
+    get_last_close,
     get_last_price_date,
     init_db,
     query_prices,
@@ -63,6 +64,22 @@ class TestGetLastPriceDate:
     def test_returns_none_for_missing_ticker(self, in_memory_db):
         init_db(in_memory_db)
         assert get_last_price_date(in_memory_db, "ZZZZ") is None
+
+
+class TestGetLastClose:
+    def test_returns_last_close(self, in_memory_db):
+        init_db(in_memory_db)
+        rows = [
+            ("AAPL", "2024-01-01", 100.0, 105.0, 99.0, 104.0, 1000000, 104.0),
+            ("AAPL", "2024-01-03", 104.0, 106.0, 103.0, 105.0, 1100000, 105.0),
+            ("AAPL", "2024-01-02", 102.0, 104.0, 101.0, 103.0, 900000, 103.0),
+        ]
+        upsert_prices(in_memory_db, rows)
+        assert get_last_close(in_memory_db, "AAPL") == 105.0
+
+    def test_returns_none_for_missing_ticker(self, in_memory_db):
+        init_db(in_memory_db)
+        assert get_last_close(in_memory_db, "ZZZZ") is None
 
 
 class TestUpsertTicker:
